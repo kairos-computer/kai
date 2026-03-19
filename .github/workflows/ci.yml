@@ -31,8 +31,8 @@ jobs:
       - run: bun install
       - run: bun run lint
       - run: bun run check
-      - run: bun run typecheck
       - run: bun run build
+      - run: bun run typecheck
       - run: bun test
         env:
           ANTHROPIC_API_KEY: ${{ inputs.integration && secrets.ANTHROPIC_API_KEY || '' }}
