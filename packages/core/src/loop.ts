@@ -57,7 +57,7 @@ export interface LoopConfig {
   initialMessages: UIMessage[]
   callSettings?: CallSettings
   prepareStep?: PrepareStepFn
-  onContextOverflow?: (messages: UIMessage[]) => Effect.Effect<UIMessage[]>
+  onContextOverflow?: (messages: UIMessage[], usage: LanguageModelUsage) => Effect.Effect<UIMessage[]>
   hooks?: AgentHooks
 }
 
@@ -407,7 +407,7 @@ export function runLoop(
       } else if (finishReason === "length") {
         if (config.onContextOverflow) {
           const s = yield* Ref.get(state)
-          const compacted = yield* config.onContextOverflow(s.messages)
+          const compacted = yield* config.onContextOverflow(s.messages, response.usage)
           yield* Ref.update(state, (s) => ({ ...s, messages: compacted }))
           continue
         }

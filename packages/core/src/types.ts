@@ -144,7 +144,7 @@ export interface AgentConfig {
   /** Model call settings (temperature, max tokens, etc.). */
   callSettings?: CallSettings
   /** Called when `finishReason` is `"length"`. Return compacted messages to continue. */
-  onContextOverflow?: (messages: UIMessage[]) => Effect.Effect<UIMessage[]>
+  onContextOverflow?: (messages: UIMessage[], usage: LanguageModelUsage) => Effect.Effect<UIMessage[]>
   /** Lifecycle hooks. */
   hooks?: AgentHooks
 }
