@@ -31,11 +31,13 @@ jobs:
           mv package.json.tmp package.json
 
       - name: Publish @kairos-computer/core
-        run: npm publish packages/core --provenance --access public
+        run: npm publish --provenance --access public
+        working-directory: packages/core
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @kairos-computer/redis
-        run: npm publish packages/redis --provenance --access public
+        run: npm publish --provenance --access public
+        working-directory: packages/redis
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
