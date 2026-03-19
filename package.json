@@ -1,7 +1,9 @@
 {
   "name": "kai",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "check": "bunx oxlint packages/ && bunx biome check packages/",
     "check:fix": "bunx biome check --fix packages/",
@@ -9,10 +11,12 @@
     "format": "bunx biome format packages/",
     "typecheck": "bunx tsc --project packages/core/tsconfig.json --noEmit && bunx tsc --project packages/redis/tsconfig.json --noEmit",
     "build": "bunx tsc --project packages/core/tsconfig.json && bunx tsc --project packages/redis/tsconfig.json",
-    "test": "bun test"
+    "test": "bun test",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.7",
+    "husky": "^9.1.7",
     "oxlint": "^1.56.0"
   }
 }
