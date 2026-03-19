@@ -363,14 +363,19 @@ describe.skipIf(!redisAvailable)("RedisStopSignalLayer", () => {
   })
 
   test("publishStopSignal sets key and publishes", async () => {
-    await publishStopSignal(redis, convId, { prefix: PREFIX })
+    // Use a distinct conversation to avoid interference from prior tests
+    const pubConvId = "test-conv-pub"
+    const pubKey = `${PREFIX}:${pubConvId}:stop`
+    await redis.del(pubKey)
+
+    await publishStopSignal(redis, pubConvId, { prefix: PREFIX })
 
     // Key should exist
-    const val = await redis.get(key)
+    const val = await redis.get(pubKey)
     expect(val).toBe("1")
 
     // Key should have TTL
-    const ttl = await redis.ttl(key)
+    const ttl = await redis.ttl(pubKey)
     expect(ttl).toBeGreaterThan(0)
     expect(ttl).toBeLessThanOrEqual(30)
   })
