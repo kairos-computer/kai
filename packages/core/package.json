@@ -32,7 +32,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kairos-computer/kai",
+    "url": "git+https://github.com/kairos-computer/kai.git",
     "directory": "packages/core"
   }
 }
