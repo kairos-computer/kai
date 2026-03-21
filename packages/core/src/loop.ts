@@ -66,6 +66,12 @@ export interface LoopConfig {
    * Default false: runLoop ACKs immediately on successful completion.
    */
   deferQueueAck?: boolean
+  /**
+   * When not deferring ACKs, also ACK queue entries on `finishReason="aborted"`.
+   * Useful for stop/interception flows where the triggering message was consumed.
+   * Default: true.
+   */
+  ackQueueOnAbort?: boolean
   hooks?: AgentHooks
 }
 
@@ -461,7 +467,9 @@ export function runLoop(
     // ACK queue entries only after a successful loop completion.
     // Callers can defer this (e.g. to ACK only after persistence succeeds).
     const shouldAckQueue =
-      loopFinishReason === "stop" || loopFinishReason === "tool-calls"
+      loopFinishReason === "stop" ||
+      loopFinishReason === "tool-calls" ||
+      (loopFinishReason === "aborted" && (config.ackQueueOnAbort ?? true))
     if (
       shouldAckQueue &&
       !config.deferQueueAck &&
@@ -745,36 +753,47 @@ function collectErrorCandidates(cause: unknown): unknown[] {
 
     out.push(current)
 
-    if (typeof current === "object" && current !== null) {
-      const maybeCause = (current as { cause?: unknown }).cause
-      if (maybeCause !== undefined) stack.push(maybeCause)
+    if (!isRecord(current)) continue
+
+    if (current.cause !== undefined) {
+      stack.push(current.cause)
+    }
+    if (Array.isArray(current.errors)) {
+      for (const nested of current.errors) stack.push(nested)
+    }
+    for (const symbol of Object.getOwnPropertySymbols(current)) {
+      const nested = (current as Record<symbol, unknown>)[symbol]
+      if (nested !== undefined) stack.push(nested)
     }
   }
 
   return out
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
 function getStatusCode(value: unknown): number | undefined {
-  if (typeof value !== "object" || value === null) return undefined
-  const statusCode = (value as { statusCode?: unknown }).statusCode
+  if (!isRecord(value)) return undefined
+  const statusCode = value.statusCode
   if (typeof statusCode === "number") return statusCode
-  const status = (value as { status?: unknown }).status
+  const status = value.status
   if (typeof status === "number") return status
   return undefined
 }
 
 function isRetryableFlag(value: unknown): boolean {
-  if (typeof value !== "object" || value === null) return false
-  return (value as { isRetryable?: unknown }).isRetryable === true
+  if (!isRecord(value)) return false
+  return value.isRetryable === true
 }
 
 function getMessage(value: unknown): string {
   if (typeof value === "string") return value
   if (value instanceof Error) return value.message
-  if (typeof value === "object" && value !== null) {
-    const message = (value as { message?: unknown }).message
-    if (typeof message === "string") return message
-  }
+  if (!isRecord(value)) return ""
+  const message = value.message
+  if (typeof message === "string") return message
   return ""
 }
 

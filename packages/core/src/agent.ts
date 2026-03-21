@@ -54,6 +54,7 @@ export class Agent {
         prepareStep: config.prepareStep,
         onContextOverflow: config.onContextOverflow,
         deferQueueAck: true,
+        ackQueueOnAbort: config.ackQueueOnAbort,
         hooks: config.hooks,
       })
 
@@ -62,7 +63,9 @@ export class Agent {
       }
 
       const shouldAckQueue =
-        result.finishReason === "stop" || result.finishReason === "tool-calls"
+        result.finishReason === "stop" ||
+        result.finishReason === "tool-calls" ||
+        (result.finishReason === "aborted" && (config.ackQueueOnAbort ?? true))
       if (
         shouldAckQueue &&
         Option.isSome(messageQueue) &&

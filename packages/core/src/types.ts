@@ -157,6 +157,12 @@ export interface AgentConfig {
     messages: UIMessage[],
     usage: LanguageModelUsage,
   ) => Effect.Effect<UIMessage[]>
+  /**
+   * Whether queue adapters with deferred ACK should ACK when a run ends with
+   * `finishReason="aborted"` (for user stop / message interception flows).
+   * Default: true.
+   */
+  ackQueueOnAbort?: boolean
   /** Lifecycle hooks. */
   hooks?: AgentHooks
 }
