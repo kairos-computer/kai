@@ -116,6 +116,15 @@ export interface CallSettings {
   topK?: number
   stopSequences?: string[]
   providerOptions?: Record<string, Record<string, unknown>>
+  /**
+   * Retry policy for transient model/API stream failures (5xx, 429, timeouts).
+   * Defaults: maxAttempts=3, baseDelayMs=750, maxDelayMs=5000.
+   */
+  streamRetry?: {
+    maxAttempts?: number
+    baseDelayMs?: number
+    maxDelayMs?: number
+  }
 }
 
 /**

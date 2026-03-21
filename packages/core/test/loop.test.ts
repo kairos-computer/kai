@@ -11,6 +11,7 @@ import {
 } from "../src/services/MessageQueue.js"
 import { StopSignal, NoopStopSignalLayer } from "../src/services/StopSignal.js"
 import {
+  failThenSucceedModel,
   mockModel,
   slowMockModel,
   textResponse,
@@ -103,6 +104,57 @@ describe("basic text response", () => {
     // Assistant message carries responseId in metadata
     const meta = result.messages[1].metadata as Record<string, unknown> | undefined
     expect(meta?.responseId).toBe(result.responseId)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Stream retry
+// ---------------------------------------------------------------------------
+
+describe("stream retry", () => {
+  test("retries transient doStream failures and succeeds", async () => {
+    const model = failThenSucceedModel(
+      2,
+      textResponse("Recovered"),
+      () =>
+        Object.assign(new Error("Internal server error"), {
+          statusCode: 500,
+          isRetryable: true,
+        }),
+    )
+
+    const result = await runLoop({
+      model,
+      conversationId: CONV_ID,
+      initialMessages: [userMessage("Hi")],
+      callSettings: {
+        streamRetry: { maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 5 },
+      },
+    }).pipe(Effect.provide(noopLayer), Effect.runPromise)
+
+    expect(result.finishReason).toBe("stop")
+    expect(result.steps[0].text).toBe("Recovered")
+    expect(model.callCount).toBe(3)
+  })
+
+  test("does not retry non-transient doStream failures", async () => {
+    const model = failThenSucceedModel(
+      1,
+      textResponse("Should not be reached"),
+      () => Object.assign(new Error("Bad request"), { statusCode: 400 }),
+    )
+
+    await expect(
+      runLoop({
+        model,
+        conversationId: CONV_ID,
+        initialMessages: [userMessage("Hi")],
+        callSettings: {
+          streamRetry: { maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 5 },
+        },
+      }).pipe(Effect.provide(noopLayer), Effect.runPromise),
+    ).rejects.toBeDefined()
+    expect(model.callCount).toBe(1)
   })
 })
 

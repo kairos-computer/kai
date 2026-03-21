@@ -6,10 +6,7 @@ import type {
   StreamError,
 } from "./errors.js"
 import { runLoop } from "./loop.js"
-import {
-  type MessageQueue,
-  NoopMessageQueueLayer,
-} from "./services/MessageQueue.js"
+import { MessageQueue, NoopMessageQueueLayer } from "./services/MessageQueue.js"
 import { NoopPersistenceLayer, Persistence } from "./services/Persistence.js"
 import { NoopStopSignalLayer, type StopSignal } from "./services/StopSignal.js"
 import { NoopStreamingLayer, type Streaming } from "./services/Streaming.js"
@@ -34,6 +31,7 @@ export class Agent {
 
     return Effect.gen(function* () {
       const persistence = yield* Effect.serviceOption(Persistence)
+      const messageQueue = yield* Effect.serviceOption(MessageQueue)
       const history = Option.isSome(persistence)
         ? yield* persistence.value.loadMessages(conversationId)
         : []
@@ -55,11 +53,22 @@ export class Agent {
         callSettings: config.callSettings,
         prepareStep: config.prepareStep,
         onContextOverflow: config.onContextOverflow,
+        deferQueueAck: true,
         hooks: config.hooks,
       })
 
       if (Option.isSome(persistence)) {
         yield* persistence.value.saveMessages(conversationId, result.messages)
+      }
+
+      const shouldAckQueue =
+        result.finishReason === "stop" || result.finishReason === "tool-calls"
+      if (
+        shouldAckQueue &&
+        Option.isSome(messageQueue) &&
+        messageQueue.value.ack
+      ) {
+        yield* messageQueue.value.ack()
       }
 
       return result

@@ -10,7 +10,8 @@ import type Redis from "ioredis"
  * Stream key: `{prefix}:{conversationId}:messages`
  * Consumer group: `{groupName}` (default: `"kai-agent"`)
  *
- * Entries are XACKed after parsing. Call `ensureConsumerGroup` before use.
+ * Entries are ACKed via `ack()` after successful processing.
+ * Call `ensureConsumerGroup` before use.
  */
 export function RedisMessageQueueLayer(config: {
   redis: Redis
@@ -28,6 +29,7 @@ export function RedisMessageQueueLayer(config: {
   const streamKey = `${config.prefix ?? "kai"}:${config.conversationId}:messages`
   const group = config.groupName ?? "kai-agent"
   const blockMs = config.blockMs ?? 30_000
+  const pendingEntryIds = new Set<string>()
 
   return Layer.succeed(MessageQueue, {
     // Non-blocking: read all available entries without waiting.
@@ -45,13 +47,14 @@ export function RedisMessageQueueLayer(config: {
           ">",
         )
         if (!results) return []
-        const { messages, entryIds } = parseAndCollectIds(
-          results as XReadGroupResult,
-          config.parseMessage,
-        )
-        // ACK processed entries so they don't accumulate in the pending list
-        if (entryIds.length > 0) {
-          await config.redis.xack(streamKey, group, ...entryIds)
+        const { messages, messageEntryIds, droppedEntryIds } =
+          parseAndCollectIds(results as XReadGroupResult, config.parseMessage)
+        // Drop unparseable messages immediately to avoid poison entries.
+        if (droppedEntryIds.length > 0) {
+          await config.redis.xack(streamKey, group, ...droppedEntryIds)
+        }
+        for (const entryId of messageEntryIds) {
+          pendingEntryIds.add(entryId)
         }
         return messages
       }),
@@ -75,14 +78,26 @@ export function RedisMessageQueueLayer(config: {
           )
           if (!results) continue
 
-          const { messages, entryIds } = parseAndCollectIds(
-            results as XReadGroupResult,
-            config.parseMessage,
-          )
-          if (entryIds.length > 0) {
-            await config.redis.xack(streamKey, group, ...entryIds)
+          const { messages, messageEntryIds, droppedEntryIds } =
+            parseAndCollectIds(results as XReadGroupResult, config.parseMessage)
+          // Drop unparseable messages immediately to avoid poison entries.
+          if (droppedEntryIds.length > 0) {
+            await config.redis.xack(streamKey, group, ...droppedEntryIds)
+          }
+          for (const entryId of messageEntryIds) {
+            pendingEntryIds.add(entryId)
           }
           if (messages.length > 0) return messages[0]
+        }
+      }),
+    // ACK all messages consumed by drain()/wait().
+    ack: () =>
+      Effect.promise(async () => {
+        const ids = [...pendingEntryIds]
+        if (ids.length === 0) return
+        await config.redis.xack(streamKey, group, ...ids)
+        for (const id of ids) {
+          pendingEntryIds.delete(id)
         }
       }),
   })
@@ -113,21 +128,30 @@ type XReadGroupResult = [string, [string, string[]][]][]
 function parseAndCollectIds(
   results: XReadGroupResult,
   parseMessage: (data: Record<string, string>) => UIMessage | null,
-): { messages: UIMessage[]; entryIds: string[] } {
+): {
+  messages: UIMessage[]
+  messageEntryIds: string[]
+  droppedEntryIds: string[]
+} {
   const messages: UIMessage[] = []
-  const entryIds: string[] = []
+  const messageEntryIds: string[] = []
+  const droppedEntryIds: string[] = []
 
   for (const [, entries] of results) {
     for (const [entryId, fields] of entries) {
-      entryIds.push(entryId)
       const data: Record<string, string> = {}
       for (let i = 0; i < fields.length; i += 2) {
         data[fields[i]] = fields[i + 1]
       }
       const msg = parseMessage(data)
-      if (msg) messages.push(msg)
+      if (msg) {
+        messages.push(msg)
+        messageEntryIds.push(entryId)
+      } else {
+        droppedEntryIds.push(entryId)
+      }
     }
   }
 
-  return { messages, entryIds }
+  return { messages, messageEntryIds, droppedEntryIds }
 }

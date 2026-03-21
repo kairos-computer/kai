@@ -33,7 +33,7 @@ Publishes `StreamChunk` as JSON to a Redis Pub/Sub channel (`{prefix}:{userId}:c
 
 ### MessageQueue
 
-Uses Redis Streams (`XREADGROUP`/`XACK`) for durable message queuing. `drain()` is non-blocking, `wait()` blocks until a message arrives.
+Uses Redis Streams (`XREADGROUP`/`XACK`) for durable message queuing. `drain()` is non-blocking, `wait()` blocks until a message arrives, and `ack()` confirms messages after successful processing.
 
 ```typescript
 import { ensureConsumerGroup } from "@kairos-computer/redis"

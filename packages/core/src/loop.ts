@@ -61,6 +61,11 @@ export interface LoopConfig {
     messages: UIMessage[],
     usage: LanguageModelUsage,
   ) => Effect.Effect<UIMessage[]>
+  /**
+   * If true, queue ACK is deferred to the caller (e.g. Agent after persistence).
+   * Default false: runLoop ACKs immediately on successful completion.
+   */
+  deferQueueAck?: boolean
   hooks?: AgentHooks
 }
 
@@ -189,7 +194,7 @@ export function runLoop(
 
       // Stream one LLM call
       const stepStart = Date.now()
-      const response = yield* streamStep(
+      const response = yield* streamStepWithRetry(
         stepModel,
         system,
         tools,
@@ -453,6 +458,19 @@ export function runLoop(
       })
     }
 
+    // ACK queue entries only after a successful loop completion.
+    // Callers can defer this (e.g. to ACK only after persistence succeeds).
+    const shouldAckQueue =
+      loopFinishReason === "stop" || loopFinishReason === "tool-calls"
+    if (
+      shouldAckQueue &&
+      !config.deferQueueAck &&
+      Option.isSome(messageQueue) &&
+      messageQueue.value.ack
+    ) {
+      yield* messageQueue.value.ack()
+    }
+
     const final = yield* Ref.get(state)
     return {
       responseId,
@@ -467,6 +485,64 @@ export function runLoop(
 // ---------------------------------------------------------------------------
 // Stream a single LLM call with stop signal support
 // ---------------------------------------------------------------------------
+
+function streamStepWithRetry(
+  model: LanguageModelV3,
+  system: string | undefined,
+  tools: ToolSet,
+  messages: UIMessage[],
+  callSettings: CallSettings | undefined,
+  abortController: AbortController,
+  publisher: ChunkPublisher | null,
+): Effect.Effect<StepResponse, StreamError> {
+  return Effect.gen(function* () {
+    const maxAttempts = Math.max(1, callSettings?.streamRetry?.maxAttempts ?? 3)
+    const baseDelayMs = Math.max(
+      0,
+      callSettings?.streamRetry?.baseDelayMs ?? 750,
+    )
+    const maxDelayMs = Math.max(
+      baseDelayMs,
+      callSettings?.streamRetry?.maxDelayMs ?? 5000,
+    )
+
+    let attempt = 1
+
+    while (true) {
+      const result = yield* Effect.either(
+        streamStep(
+          model,
+          system,
+          tools,
+          messages,
+          callSettings,
+          abortController,
+          publisher,
+        ),
+      )
+
+      if (result._tag === "Right") {
+        return result.right
+      }
+
+      const error = result.left
+      const shouldRetry =
+        !abortController.signal.aborted &&
+        attempt < maxAttempts &&
+        isTransientStreamError(error)
+
+      if (!shouldRetry) {
+        return yield* Effect.fail(error)
+      }
+
+      const delayMs = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs)
+      yield* Effect.promise(() =>
+        sleepWithAbort(delayMs, abortController.signal),
+      )
+      attempt++
+    }
+  })
+}
 
 /**
  * Stream a single LLM call. Aborts immediately when `abortController` is signaled.
@@ -622,6 +698,103 @@ function isAbortError(value: unknown): boolean {
   if (value instanceof Error && value.name === "AbortError") return true
   if (value instanceof Error && value.message.includes("aborted")) return true
   return false
+}
+
+function isTransientStreamError(error: StreamError): boolean {
+  const candidates = collectErrorCandidates(error.cause)
+
+  for (const candidate of candidates) {
+    const statusCode = getStatusCode(candidate)
+    if (
+      statusCode &&
+      [408, 409, 425, 429, 500, 502, 503, 504].includes(statusCode)
+    ) {
+      return true
+    }
+
+    if (isRetryableFlag(candidate)) return true
+
+    const message = getMessage(candidate).toLowerCase()
+    if (
+      message.includes("internal server error") ||
+      message.includes("rate limit") ||
+      message.includes("temporarily unavailable") ||
+      message.includes("timeout") ||
+      message.includes("timed out") ||
+      message.includes("overloaded")
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function collectErrorCandidates(cause: unknown): unknown[] {
+  const out: unknown[] = []
+  const stack: unknown[] = [cause]
+  const seen = new Set<unknown>()
+
+  while (stack.length > 0) {
+    const current = stack.pop()
+    if (current === undefined || current === null) continue
+    if (typeof current === "object") {
+      if (seen.has(current)) continue
+      seen.add(current)
+    }
+
+    out.push(current)
+
+    if (typeof current === "object" && current !== null) {
+      const maybeCause = (current as { cause?: unknown }).cause
+      if (maybeCause !== undefined) stack.push(maybeCause)
+    }
+  }
+
+  return out
+}
+
+function getStatusCode(value: unknown): number | undefined {
+  if (typeof value !== "object" || value === null) return undefined
+  const statusCode = (value as { statusCode?: unknown }).statusCode
+  if (typeof statusCode === "number") return statusCode
+  const status = (value as { status?: unknown }).status
+  if (typeof status === "number") return status
+  return undefined
+}
+
+function isRetryableFlag(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false
+  return (value as { isRetryable?: unknown }).isRetryable === true
+}
+
+function getMessage(value: unknown): string {
+  if (typeof value === "string") return value
+  if (value instanceof Error) return value.message
+  if (typeof value === "object" && value !== null) {
+    const message = (value as { message?: unknown }).message
+    if (typeof message === "string") return message
+  }
+  return ""
+}
+
+function sleepWithAbort(delayMs: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted || delayMs <= 0) return Promise.resolve()
+
+  return new Promise<void>((resolve) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort)
+      resolve()
+    }, delayMs)
+
+    const onAbort = () => {
+      clearTimeout(timeout)
+      signal.removeEventListener("abort", onAbort)
+      resolve()
+    }
+
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
 }
 
 function drainQueuedMessages(

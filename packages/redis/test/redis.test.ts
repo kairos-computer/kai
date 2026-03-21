@@ -177,7 +177,7 @@ describe.skipIf(!redisAvailable)("RedisMessageQueueLayer", () => {
     expect(messages[1].role).toBe("user")
   })
 
-  test("drain() XACKs entries after reading", async () => {
+  test("drain() defers XACK until ack()", async () => {
     await redis.xadd(streamKey, "*", "payload", JSON.stringify(userMessage("test")))
 
     const layer = RedisMessageQueueLayer({
@@ -189,25 +189,33 @@ describe.skipIf(!redisAvailable)("RedisMessageQueueLayer", () => {
       parseMessage: (data) => JSON.parse(data.payload),
     })
 
-    // First drain reads the message
-    const first = await MessageQueue.pipe(
-      Effect.flatMap((mq) => mq.drain()),
+    const result = await MessageQueue.pipe(
+      Effect.flatMap((mq) =>
+        Effect.gen(function* () {
+          const first = yield* mq.drain()
+          const second = yield* mq.drain()
+          const pendingBeforeAck = yield* Effect.promise(() =>
+            redis.xpending(streamKey, groupName),
+          )
+          if (mq.ack) {
+            yield* mq.ack()
+          }
+          const pendingAfterAck = yield* Effect.promise(() =>
+            redis.xpending(streamKey, groupName),
+          )
+
+          return { first, second, pendingBeforeAck, pendingAfterAck }
+        }),
+      ),
       Effect.provide(layer),
       Effect.runPromise,
     )
-    expect(first).toHaveLength(1)
 
-    // Second drain should be empty — message was ACKed
-    const second = await MessageQueue.pipe(
-      Effect.flatMap((mq) => mq.drain()),
-      Effect.provide(layer),
-      Effect.runPromise,
-    )
-    expect(second).toEqual([])
-
-    // Pending list should be empty
-    const pending = await redis.xpending(streamKey, groupName)
-    expect(pending[0]).toBe(0) // 0 pending entries
+    expect(result.first).toHaveLength(1)
+    // Stream reads use ">" so pending entries are not read again until claimed.
+    expect(result.second).toEqual([])
+    expect(Number(result.pendingBeforeAck[0])).toBe(1)
+    expect(Number(result.pendingAfterAck[0])).toBe(0)
   })
 
   test("wait() blocks until a message arrives", async () => {

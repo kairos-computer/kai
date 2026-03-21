@@ -154,6 +154,9 @@ import { MessageQueue } from "@kairos-computer/core"
 const myMqLayer = Layer.succeed(MessageQueue, {
   drain: () => Effect.promise(() => readAllPendingMessages()),
   wait: () => Effect.promise(() => blockForNextMessage()),
+  // Optional: ACK entries consumed by drain()/wait().
+  // Agent.run() calls this after successful persistence.
+  ack: () => Effect.promise(() => ackConsumedEntries()),
 })
 ```
 

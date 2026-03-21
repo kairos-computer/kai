@@ -8,6 +8,11 @@ export class MessageQueue extends Context.Tag("kai/MessageQueue")<
     readonly drain: () => Effect.Effect<UIMessage[]>
     /** Blocking: wait for the next message. */
     readonly wait: () => Effect.Effect<UIMessage>
+    /**
+     * Optional deferred ACK hook for queue adapters that support at-least-once
+     * delivery. Implementations should ACK messages consumed by drain()/wait().
+     */
+    readonly ack?: () => Effect.Effect<void>
   }
 >() {}
 

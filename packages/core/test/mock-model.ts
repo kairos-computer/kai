@@ -105,6 +105,58 @@ export function slowMockModel(
   return model
 }
 
+/**
+ * Mock model that throws for the first N doStream() calls, then succeeds.
+ */
+export function failThenSucceedModel(
+  failures: number,
+  successParts: LanguageModelV3StreamPart[],
+  errorFactory: (attempt: number) => unknown = (attempt) =>
+    Object.assign(new Error(`transient failure ${attempt}`), {
+      statusCode: 500,
+      isRetryable: true,
+    }),
+): MockModel {
+  let count = 0
+
+  const model: MockModel = {
+    specificationVersion: "v3",
+    provider: "mock",
+    modelId: "fail-then-succeed-model",
+    defaultObjectGenerationMode: undefined,
+    supportsImageUrls: false,
+    supportsStructuredOutputs: false,
+    supportedUrls: {},
+    get callCount() { return count },
+
+    doGenerate() {
+      throw new Error("doGenerate not implemented")
+    },
+
+    doStream(
+      _options: LanguageModelV3CallOptions,
+    ): PromiseLike<LanguageModelV3StreamResult> {
+      count++
+      if (count <= failures) {
+        throw errorFactory(count)
+      }
+
+      const stream = new ReadableStream<LanguageModelV3StreamPart>({
+        start(controller) {
+          for (const part of successParts) {
+            controller.enqueue(part)
+          }
+          controller.close()
+        },
+      })
+
+      return Promise.resolve({ stream })
+    },
+  } as MockModel
+
+  return model
+}
+
 // -- Response helpers -------------------------------------------------------
 
 const USAGE = {
