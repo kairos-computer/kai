@@ -37,6 +37,8 @@ export type {
   StepContext,
   StepResult,
   StreamChunk,
+  SystemModelMessage,
+  SystemPrompt,
   ToolCallResult,
   ToolSet,
   UIMessage,

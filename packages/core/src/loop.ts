@@ -39,6 +39,7 @@ import type {
   StepConfig,
   StepContext,
   StepResult,
+  SystemPrompt,
 } from "./types.js"
 
 // ---------------------------------------------------------------------------
@@ -51,7 +52,7 @@ export interface LoopConfig {
   conversationId: string
   /** Correlates streaming chunks with the persisted message. Auto-generated if omitted. */
   responseId?: string
-  system?: string
+  system?: SystemPrompt
   tools?: ToolSet
   executeTools?: boolean | ExecuteToolsFn
   initialMessages: UIMessage[]
@@ -496,7 +497,7 @@ export function runLoop(
 
 function streamStepWithRetry(
   model: LanguageModelV3,
-  system: string | undefined,
+  system: SystemPrompt | undefined,
   tools: ToolSet,
   messages: UIMessage[],
   callSettings: CallSettings | undefined,
@@ -559,7 +560,7 @@ function streamStepWithRetry(
  */
 function streamStep(
   model: LanguageModelV3,
-  system: string | undefined,
+  system: SystemPrompt | undefined,
   tools: ToolSet,
   messages: UIMessage[],
   callSettings: CallSettings | undefined,

@@ -2,6 +2,7 @@ import type { LanguageModelV3 } from "@ai-sdk/provider"
 import type {
   FinishReason,
   LanguageModelUsage,
+  SystemModelMessage,
   ToolSet,
   UIMessage,
   UIMessageChunk,
@@ -13,6 +14,7 @@ export type {
   FinishReason,
   LanguageModelUsage,
   LanguageModelV3,
+  SystemModelMessage,
   ToolSet,
   UIMessage,
   UIMessageChunk,
@@ -73,11 +75,18 @@ export interface StepContext {
   messages: UIMessage[]
 }
 
+/**
+ * Valid system prompt types. A plain string, a single structured message
+ * (with optional providerOptions for cache control etc.), or an array of
+ * structured messages.
+ */
+export type SystemPrompt = string | SystemModelMessage | SystemModelMessage[]
+
 /** Override model, tools, or system prompt for a single step. */
 export interface StepConfig {
   model?: LanguageModelV3
   tools?: ToolSet
-  system?: string
+  system?: SystemPrompt
 }
 
 // -- Loop result ------------------------------------------------------------
@@ -142,8 +151,8 @@ export type ExecuteToolsFn = (
 export interface AgentConfig {
   /** Any AI SDK LanguageModelV3 provider (Anthropic, OpenAI, Bedrock, etc.). */
   model: LanguageModelV3
-  /** Static string or dynamic function called once at the start. */
-  system?: string | ((ctx: StepContext) => string)
+  /** Static system prompt or dynamic function called once at the start. */
+  system?: SystemPrompt | ((ctx: StepContext) => SystemPrompt)
   /** Tools available to the model. Define with `tool()` from `ai`. */
   tools?: ToolSet
   /** How to handle tool calls. Default: `true` (auto-execute). */
