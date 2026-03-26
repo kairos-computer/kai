@@ -59,7 +59,11 @@ export class Agent {
       })
 
       if (Option.isSome(persistence)) {
-        yield* persistence.value.saveMessages(conversationId, result.messages)
+        yield* persistence.value.saveMessages(
+          conversationId,
+          result.messages,
+          result.totalUsage,
+        )
       }
 
       const shouldAckQueue =
