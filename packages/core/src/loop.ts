@@ -15,6 +15,7 @@ import {
   addUsage,
   buildAssistantMessage,
   EMPTY_USAGE,
+  extractReasoning,
   extractText,
   extractToolCalls,
   prepareTools,
@@ -228,6 +229,7 @@ export function runLoop(
       }
 
       const text = extractText(response.parts)
+      const reasoning = extractReasoning(response.parts)
       const toolCalls = extractToolCalls(response.parts)
       const { finishReason } = response
 
@@ -266,7 +268,13 @@ export function runLoop(
             ...s,
             messages: [
               ...s.messages,
-              buildAssistantMessage(text, toolCalls, undefined, responseId),
+              buildAssistantMessage(
+                text,
+                toolCalls,
+                undefined,
+                responseId,
+                reasoning,
+              ),
             ],
           }))
           loopFinishReason = "tool-calls"
@@ -335,7 +343,13 @@ export function runLoop(
           ...s,
           messages: [
             ...s.messages,
-            buildAssistantMessage(text, toolCalls, toolResults, responseId),
+            buildAssistantMessage(
+              text,
+              toolCalls,
+              toolResults,
+              responseId,
+              reasoning,
+            ),
           ],
         }))
 
@@ -365,7 +379,7 @@ export function runLoop(
           ...s,
           messages: [
             ...s.messages,
-            buildAssistantMessage(text, [], undefined, responseId),
+            buildAssistantMessage(text, [], undefined, responseId, reasoning),
           ],
         }))
 
@@ -447,7 +461,7 @@ export function runLoop(
             ...s,
             messages: [
               ...s.messages,
-              buildAssistantMessage(text, [], undefined, responseId),
+              buildAssistantMessage(text, [], undefined, responseId, reasoning),
             ],
           }))
         }

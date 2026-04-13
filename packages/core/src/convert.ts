@@ -134,6 +134,14 @@ export function extractText(parts: LanguageModelV3StreamPart[]): string {
   return chunks.join("")
 }
 
+export function extractReasoning(parts: LanguageModelV3StreamPart[]): string {
+  const chunks: string[] = []
+  for (const part of parts) {
+    if (part.type === "reasoning-delta") chunks.push(part.delta)
+  }
+  return chunks.join("")
+}
+
 export function extractToolCalls(
   parts: LanguageModelV3StreamPart[],
 ): ParsedToolCall[] {
@@ -235,6 +243,7 @@ export function buildAssistantMessage(
   toolCalls: ParsedToolCall[],
   toolResults?: ToolCallResult[],
   responseId?: string,
+  reasoning?: string,
 ): UIMessage {
   const resultMap = new Map(
     (toolResults ?? []).map((tr) => [tr.toolCallId, tr]),
@@ -243,6 +252,11 @@ export function buildAssistantMessage(
   // Build parts as a plain array — tool parts match ToolUIPart at runtime
   // but can't be statically verified without the generic ToolSet parameter.
   const parts: Record<string, unknown>[] = []
+
+  // Reasoning first (shown above text in the UI)
+  if (reasoning) {
+    parts.push({ type: "reasoning", text: reasoning })
+  }
 
   if (text) {
     parts.push({ type: "text", text })
